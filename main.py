@@ -11,9 +11,8 @@ from bs4 import BeautifulSoup
 import requests
 
 # ===== КОНФИГ =====
-DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN',
-                               "MTU0MDA2NTY4NzcyMzA1MzIyNg.GuF1JW.iE43evo1FUyg5z6kt0V2Vn33TmqaMIIzikm8E4")
-CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 1540062587029553234))
+DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
+CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
 PANEL_URL = "https://hook.today"
 CHECK_INTERVAL = 10
 
