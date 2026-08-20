@@ -1,0 +1,35 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Browser profile (большой, не нужен в репозитории)
+browser_profile/
+downloaded_files/
+
+# Debug files
+debug.html
+page.html
+page.png
+
+# Cookies (сессионные данные — не в репозиторий)
+cookies.pkl
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
