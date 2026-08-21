@@ -6,8 +6,6 @@ import re
 import os
 import pickle
 from datetime import datetime
-from seleniumbase import Driver
-from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import requests
 from dotenv import load_dotenv
@@ -20,13 +18,10 @@ CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
 PANEL_URL = "https://hook.today"
 CHECK_INTERVAL = 10
 
-# ===== РЕЖИМ =====
-HEADLESS = os.environ.get('HEADLESS', 'false').lower() == 'true'
-
 # ===== ГЛОБАЛКИ =====
-driver = None
 sessions_data = {}
 first_run = True
+session = requests.Session()
 
 # ===== КЭШ СТРАН =====
 country_cache = {}
@@ -50,14 +45,8 @@ def get_country_flag(ip):
     return "🌐"
 
 
-# ===== ЗАГРУЗКА/СОХРАНЕНИЕ КУК =====
+# ===== ЗАГРУЗКА КУК =====
 COOKIES_FILE = "cookies.pkl"
-
-
-def save_cookies(cookies):
-    with open(COOKIES_FILE, 'wb') as f:
-        pickle.dump(cookies, f)
-    print("✅ Куки сохранены")
 
 
 def load_cookies():
@@ -68,65 +57,45 @@ def load_cookies():
         return None
 
 
-# ===== ЗАПУСК БРАУЗЕРА =====
-def start_browser():
-    global driver
+# ===== ЗАПУСК (БЕЗ SELENIUM) =====
+def start_session():
+    global session
 
+    cookies = load_cookies()
+    if not cookies:
+        print("❌ Куки не найдены!")
+        return False
+
+    session.cookies.clear()
+    for c in cookies:
+        session.cookies.set(c['name'], c['value'], domain='.hook.today')
+
+    # Проверяем, работают ли куки
     try:
-        driver = Driver(
-            uc=True,
-            headless=HEADLESS,
-            browser="chrome",
-            user_data_dir="./browser_profile"
-        )
-
-        # Если есть куки — загружаем
-        cookies = load_cookies()
-        if cookies:
-            driver.get(PANEL_URL)
-            for cookie in cookies:
-                try:
-                    driver.add_cookie(cookie)
-                except:
-                    pass
-            driver.refresh()
-            print("✅ Куки загружены")
-            time.sleep(3)
-
-            # Проверяем, залогинились ли
-            if "login" not in driver.current_url.lower():
-                return True
-
-        # Если кук нет или не работают
-        if not HEADLESS:
-            print("=" * 60)
-            print("🔓 ВВЕДИ ЛОГИН, ПАРОЛЬ, ПРОЙДИ КАПЧУ")
-            print("⏳ ПОСЛЕ ВХОДА НАЖМИ ENTER")
-            print("=" * 60)
-            input()
-            save_cookies(driver.get_cookies())
-            time.sleep(3)
+        resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
+        if resp.status_code == 200:
+            print("✅ Куки загружены и работают")
             return True
         else:
-            print("⚠️ Headless режим — нужны рабочие куки")
+            print(f"❌ Куки не работают (статус: {resp.status_code})")
             return False
-
     except Exception as e:
-        print(f"❌ Ошибка запуска: {e}")
+        print(f"❌ Ошибка проверки кук: {e}")
         return False
 
 
-# ===== ПАРСИНГ ЧЕРЕЗ СЕЛЕНИУМ =====
+# ===== ПАРСИНГ =====
 def fetch_sessions():
-    global driver
-    if not driver:
-        if not start_browser():
-            return []
-    try:
-        driver.refresh()
-        time.sleep(3)
+    global session
 
-        html = driver.page_source
+    try:
+        resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
+
+        if resp.status_code != 200:
+            print(f"❌ HTTP {resp.status_code}")
+            return []
+
+        html = resp.text
         soup = BeautifulSoup(html, 'html.parser')
 
         rows = []
@@ -162,6 +131,7 @@ def fetch_sessions():
 
         print(f"📊 Найдено сессий: {len(sessions)}")
         return sessions
+
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         return []
@@ -263,7 +233,7 @@ async def on_ready():
     global first_run
     print(f"✅ Бот запущен: {bot.user}")
     first_run = True
-    if await asyncio.get_event_loop().run_in_executor(None, start_browser):
+    if await asyncio.get_event_loop().run_in_executor(None, start_session):
         monitor.start()
         print("✅ Мониторинг запущен!")
 
