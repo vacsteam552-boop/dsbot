@@ -2,15 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Устанавливаем Chrome
+# Устанавливаем зависимости для Playwright
 RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
+    wget \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем зависимости Python
+# Устанавливаем Python зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Устанавливаем Playwright браузеры
+RUN playwright install chromium
+RUN playwright install-deps
 
 # Копируем код
 COPY . .
