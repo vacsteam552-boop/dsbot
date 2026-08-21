@@ -56,6 +56,9 @@ def load_cookies():
     except FileNotFoundError:
         print(f"❌ Файл {COOKIES_FILE} не найден!")
         return None
+    except pickle.UnpicklingError:
+        print(f"❌ Файл {COOKIES_FILE} повреждён!")
+        return None
     except Exception as e:
         print(f"❌ Ошибка загрузки кук: {e}")
         return None
@@ -65,29 +68,41 @@ def load_cookies():
 def init_session():
     global session
 
-    print("🔄 Загрузка кук из cookies.pkl...")
-    cookies = load_cookies()
-    if not cookies:
-        print("❌ Куки не загружены!")
-        return False
-
-    session.cookies.clear()
-    for cookie in cookies:
-        session.cookies.set(cookie['name'], cookie['value'], domain='.hook.today')
-
-    print("✅ Куки загружены в сессию")
-
-    # Проверяем, работают ли куки
     try:
+        print("🔄 Загрузка кук из cookies.pkl...")
+        cookies = load_cookies()
+
+        if cookies is None:
+            print("❌ Куки не загружены (файл отсутствует или повреждён)")
+            print("📌 Создай cookies.pkl локально и залей в репозиторий")
+            return False
+
+        print(f"📦 Загружено {len(cookies)} кук")
+
+        session.cookies.clear()
+        for cookie in cookies:
+            session.cookies.set(cookie['name'], cookie['value'], domain='.hook.today')
+
+        print("✅ Куки загружены в сессию")
+
+        # Проверяем, работают ли куки
+        print("🔄 Проверка кук...")
         resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
+
         if resp.status_code == 200:
             print("✅ Куки работают!")
             return True
         else:
             print(f"❌ Куки НЕ работают (статус: {resp.status_code})")
             return False
+
+    except requests.exceptions.Timeout:
+        print("❌ Таймаут при проверке кук")
+        return False
     except Exception as e:
-        print(f"❌ Ошибка проверки кук: {e}")
+        print(f"❌ Ошибка инициализации: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -257,11 +272,23 @@ async def on_ready():
     first_run = True
 
     # Инициализируем сессию с куками
-    if await asyncio.get_event_loop().run_in_executor(None, init_session):
+    success = await asyncio.get_event_loop().run_in_executor(None, init_session)
+    if success:
         monitor.start()
         print("✅ Мониторинг запущен!")
     else:
         print("❌ Не удалось инициализировать сессию!")
+        print("📌 Создай cookies.pkl локально и залей в репозиторий")
+
+
+@bot.event
+async def on_disconnect():
+    print("❌ Бот отключился от Discord")
+
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    print(f"❌ Ошибка в событии {event}: {args}")
 
 
 if __name__ == "__main__":
