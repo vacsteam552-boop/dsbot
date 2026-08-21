@@ -10,6 +10,9 @@ from seleniumbase import Driver
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ===== КОНФИГ =====
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
@@ -18,14 +21,12 @@ PANEL_URL = "https://hook.today"
 CHECK_INTERVAL = 10
 
 # ===== РЕЖИМ =====
-# На Railway всегда headless
-HEADLESS = False
+HEADLESS = os.environ.get('HEADLESS', 'false').lower() == 'true'
 
 # ===== ГЛОБАЛКИ =====
 driver = None
 sessions_data = {}
 first_run = True
-session = requests.Session()
 
 # ===== КЭШ СТРАН =====
 country_cache = {}
@@ -67,14 +68,11 @@ def load_cookies():
         return None
 
 
-# ===== ОБНОВЛЕНИЕ КУК ЧЕРЕЗ БРАУЗЕР =====
-def refresh_cookies():
-    global driver, session
-
-    print("🔄 Обновление кук через браузер...")
+# ===== ЗАПУСК БРАУЗЕРА =====
+def start_browser():
+    global driver
 
     try:
-        # Запускаем браузер
         driver = Driver(
             uc=True,
             headless=HEADLESS,
@@ -82,94 +80,53 @@ def refresh_cookies():
             user_data_dir="./browser_profile"
         )
 
-        driver.get(PANEL_URL)
-        time.sleep(5)
+        # Если есть куки — загружаем
+        cookies = load_cookies()
+        if cookies:
+            driver.get(PANEL_URL)
+            for cookie in cookies:
+                try:
+                    driver.add_cookie(cookie)
+                except:
+                    pass
+            driver.refresh()
+            print("✅ Куки загружены")
+            time.sleep(3)
 
-        # Если на странице логин — пробуем войти
-        if "login" in driver.current_url.lower():
-            try:
-                driver.find_element(By.NAME, "login").send_keys(os.environ.get('PANEL_LOGIN', ''))
-                driver.find_element(By.NAME, "password").send_keys(os.environ.get('PANEL_PASSWORD', ''))
-                driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-                time.sleep(5)
-            except:
-                pass
+            # Проверяем, залогинились ли
+            if "login" not in driver.current_url.lower():
+                return True
 
-        # Если не headless — ждём ручного входа
+        # Если кук нет или не работают
         if not HEADLESS:
             print("=" * 60)
             print("🔓 ВВЕДИ ЛОГИН, ПАРОЛЬ, ПРОЙДИ КАПЧУ")
             print("⏳ ПОСЛЕ ВХОДА НАЖМИ ENTER")
             print("=" * 60)
             input()
-
-        # Получаем куки
-        cookies = driver.get_cookies()
-        save_cookies(cookies)
-
-        # Обновляем сессию requests
-        session.cookies.clear()
-        for c in cookies:
-            session.cookies.set(c['name'], c['value'], domain='.hook.today')
-
-        driver.quit()
-        driver = None
-
-        print("✅ Куки успешно обновлены")
-        return True
-
-    except Exception as e:
-        print(f"❌ Ошибка обновления кук: {e}")
-        return False
-
-
-# ===== ЗАПУСК БРАУЗЕРА =====
-def start_browser():
-    global driver, session
-
-    try:
-        # Пробуем загрузить куки
-        cookies = load_cookies()
-        if cookies:
-            session.cookies.clear()
-            for c in cookies:
-                session.cookies.set(c['name'], c['value'], domain='.hook.today')
-
-            # Проверяем, работают ли куки
-            resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
-            if resp.status_code == 200:
-                print("✅ Куки загружены и работают")
-                return True
-            else:
-                print(f"⚠️ Куки не работают (статус: {resp.status_code}), обновляем...")
-
-        # Если кук нет или они не работают — обновляем
-        return refresh_cookies()
+            save_cookies(driver.get_cookies())
+            time.sleep(3)
+            return True
+        else:
+            print("⚠️ Headless режим — нужны рабочие куки")
+            return False
 
     except Exception as e:
         print(f"❌ Ошибка запуска: {e}")
         return False
 
 
-# ===== ПАРСИНГ =====
+# ===== ПАРСИНГ ЧЕРЕЗ СЕЛЕНИУМ =====
 def fetch_sessions():
-    global driver, session
-
+    global driver
+    if not driver:
+        if not start_browser():
+            return []
     try:
-        # Пробуем получить данные через requests с куками
-        resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
+        driver.refresh()
+        time.sleep(3)
 
-        if resp.status_code == 403 or resp.status_code == 401:
-            print("⚠️ Куки умерли, обновляем...")
-            if refresh_cookies():
-                return fetch_sessions()
-            return []
-
-        if resp.status_code != 200:
-            print(f"❌ Ошибка HTTP: {resp.status_code}")
-            return []
-
-        html = resp.text
+        html = driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
 
         rows = []
@@ -205,7 +162,6 @@ def fetch_sessions():
 
         print(f"📊 Найдено сессий: {len(sessions)}")
         return sessions
-
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         return []
