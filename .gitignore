@@ -3,6 +3,7 @@
 venv/
 env/
 ENV/
+.env
 
 # Python cache
 __pycache__/
@@ -25,7 +26,7 @@ page.html
 page.png
 
 # Cookies (сессионные данные — не в репозиторий)
-cookies.pkl
+
 
 # Logs
 *.log
