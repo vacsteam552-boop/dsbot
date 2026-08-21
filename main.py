@@ -4,11 +4,11 @@ import asyncio
 import time
 import re
 import os
+import pickle
 from datetime import datetime
 from bs4 import BeautifulSoup
 import requests
 from dotenv import load_dotenv
-from playwright.async_api import async_playwright
 
 load_dotenv()
 
@@ -21,10 +21,8 @@ CHECK_INTERVAL = 15
 # ===== ГЛОБАЛКИ =====
 sessions_data = {}
 first_run = True
-browser = None
-context = None
-page = None
-playwright_instance = None
+session = requests.Session()
+use_playwright = False  # Флаг, использовать ли Playwright
 
 # ===== КЭШ СТРАН =====
 country_cache = {}
@@ -48,72 +46,56 @@ def get_country_flag(ip):
     return "🌐"
 
 
-# ===== АВТОРИЗАЦИЯ ЧЕРЕЗ PLAYWRIGHT =====
-async def init_browser():
-    global playwright_instance, browser, context, page
+# ===== ЗАГРУЗКА КУК =====
+COOKIES_FILE = "cookies.pkl"
+
+
+def load_cookies():
+    try:
+        with open(COOKIES_FILE, 'rb') as f:
+            return pickle.load(f)
+    except:
+        return None
+
+
+# ===== ЗАПУСК ЧЕРЕЗ REQUESTS =====
+def start_session():
+    global session
+
+    cookies = load_cookies()
+    if not cookies:
+        print("❌ Куки не найдены!")
+        return False
+
+    session.cookies.clear()
+    for c in cookies:
+        session.cookies.set(c['name'], c['value'], domain='.hook.today')
 
     try:
-        print("🔄 Запуск Playwright...")
-        playwright_instance = await async_playwright().start()
-
-        browser = await playwright_instance.chromium.launch(
-            headless=True,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-            ]
-        )
-
-        context = await browser.new_context(
-            viewport={'width': 1280, 'height': 720},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-        )
-
-        page = await context.new_page()
-
-        # Переход на панель
-        await page.goto(PANEL_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(3000)
-
-        # Проверяем, на странице логина или нет
-        if "login" in page.url.lower():
-            print("🔐 На странице логина, пробую войти...")
-            try:
-                await page.fill('input[name="login"]', os.environ.get('PANEL_LOGIN', ''))
-                await page.fill('input[name="password"]', os.environ.get('PANEL_PASSWORD', ''))
-                await page.click('button[type="submit"]')
-                await page.wait_for_timeout(5000)
-            except Exception as e:
-                print(f"⚠️ Ошибка входа: {e}")
-                return False
-
-        # Ждём загрузки страницы
-        await page.wait_for_timeout(3000)
-        print("✅ Playwright готов")
-        return True
-
+        resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
+        if resp.status_code == 200:
+            print("✅ Куки загружены и работают")
+            return True
+        else:
+            print(f"❌ Куки не работают (статус: {resp.status_code})")
+            return False
     except Exception as e:
-        print(f"❌ Ошибка инициализации Playwright: {e}")
+        print(f"❌ Ошибка проверки кук: {e}")
         return False
 
 
 # ===== ПАРСИНГ =====
-async def fetch_sessions_async():
-    global page
-
-    if not page:
-        if not await init_browser():
-            return []
+def fetch_sessions():
+    global session
 
     try:
-        # Обновляем страницу
-        await page.reload()
-        await page.wait_for_timeout(3000)
+        resp = session.get(f"{PANEL_URL}/?tab=all", timeout=30)
 
-        # Получаем HTML
-        html = await page.content()
+        if resp.status_code != 200:
+            print(f"❌ HTTP {resp.status_code}")
+            return []
+
+        html = resp.text
         soup = BeautifulSoup(html, 'html.parser')
 
         rows = []
@@ -151,16 +133,8 @@ async def fetch_sessions_async():
         return sessions
 
     except Exception as e:
-        print(f"❌ Ошибка парсинга: {e}")
+        print(f"❌ Ошибка: {e}")
         return []
-
-
-def fetch_sessions():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(fetch_sessions_async())
-    loop.close()
-    return result
 
 
 # ===== ОТПРАВКА =====
@@ -260,19 +234,10 @@ async def on_ready():
     print(f"✅ Бот запущен: {bot.user}")
     first_run = True
 
-    # Инициализируем браузер
-    if await init_browser():
+    # Пробуем через requests с куками
+    if await asyncio.get_event_loop().run_in_executor(None, start_session):
         monitor.start()
         print("✅ Мониторинг запущен!")
-
-
-@bot.event
-async def on_disconnect():
-    global playwright_instance, browser
-    if browser:
-        await browser.close()
-    if playwright_instance:
-        await playwright_instance.stop()
 
 
 if __name__ == "__main__":
